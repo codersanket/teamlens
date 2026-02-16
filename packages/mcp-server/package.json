@@ -1,0 +1,21 @@
+{
+  "name": "@codememory/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server — exposes memory tools to AI agents",
+  "type": "module",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist .tsbuildinfo"
+  },
+  "dependencies": {
+    "@codememory/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.6.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

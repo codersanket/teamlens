@@ -1,0 +1,23 @@
+{
+  "name": "@codememory/core",
+  "version": "0.1.0",
+  "description": "Memory engine — extract, store, retrieve, staleness",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist .tsbuildinfo"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "simple-git": "^3.27.0",
+    "chokidar": "^4.0.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "typescript": "^5.7.0"
+  }
+}
