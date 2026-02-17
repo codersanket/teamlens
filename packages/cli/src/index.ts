@@ -15,6 +15,7 @@ import { ruleAddCommand, ruleListCommand, ruleEnableCommand, ruleDisableCommand 
 import { distributeCommand } from './commands/distribute.js';
 import { dashboardCommand } from './commands/dashboard.js';
 import { feedCommand } from './commands/feed.js';
+import { hookLogCommand } from './commands/hook-log.js';
 
 const program = new Command();
 
@@ -124,6 +125,16 @@ program
   .option('-l, --limit <limit>', 'Number of insights to show', '20')
   .action(async (opts) => {
     await feedCommand(resolve(opts.path), opts.limit ? parseInt(opts.limit, 10) : 20);
+  });
+
+// ── Hook Integration (internal) ──
+
+program
+  .command('hook-log')
+  .description('Internal: log tool use from Claude Code hooks')
+  .option('-p, --path <path>', 'Repository path', '.')
+  .action(async (opts) => {
+    await hookLogCommand(resolve(opts.path));
   });
 
 // ── Rule Management ──

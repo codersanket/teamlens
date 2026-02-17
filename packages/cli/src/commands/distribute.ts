@@ -20,19 +20,18 @@ export async function distributeCommand(
   const tl = await TeamLens.create(repoPath);
 
   try {
-    const rules = tl.db.getRules(false);
-    if (rules.length === 0) {
-      console.log('No active rules found. Add rules with `teamlens rule add`.\n');
-      return;
-    }
-
     const { generated, warnings } = tl.distribute(targets as DistributionTarget[] | undefined);
 
     for (const warning of warnings) {
       console.log(`  Warning: ${warning}`);
     }
 
-    console.log(`Distributed ${rules.length} rule(s) to:\n`);
+    const rules = tl.db.getRules(false);
+    if (rules.length === 0) {
+      console.log('Generated config files (no rules yet — add with `teamlens rule add`):\n');
+    } else {
+      console.log(`Distributed ${rules.length} rule(s) to:\n`);
+    }
     for (const file of generated) {
       console.log(`  ${file}`);
     }

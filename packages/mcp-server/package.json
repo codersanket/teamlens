@@ -1,8 +1,20 @@
 {
   "name": "@teamlens/mcp-server",
-  "version": "0.1.0",
-  "description": "MCP server — exposes memory tools to AI agents",
+  "version": "0.1.1",
+  "description": "TeamLens MCP server — exposes session-aware tools to AI agents",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanketbabar/teamlens",
+    "directory": "packages/mcp-server"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist/"
+  ],
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
   "scripts": {

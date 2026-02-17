@@ -91,13 +91,23 @@ export class Distributor {
 
     let content = HEADER + '\n';
 
-    // Session protocol instructions
-    content += '## TeamLens Session Protocol\n\n';
-    content += 'This project uses TeamLens for team AI intelligence. When working on this codebase:\n\n';
-    content += '- Use `share_insight` when you discover something important (gotchas, conventions, architecture decisions)\n';
-    content += '- Use `log_activity` to record what you are doing (debug, refactor, implementation)\n';
-    content += '- Use `ask` to query what your teammates have learned\n';
-    content += '- Sessions are tracked automatically — no need to start/end manually\n\n';
+    // Session protocol instructions — strong directives
+    content += '## TeamLens — REQUIRED Protocol\n\n';
+    content += 'This project uses TeamLens for team AI intelligence. You MUST follow this protocol:\n\n';
+    content += '### Sharing Insights (MANDATORY)\n\n';
+    content += 'After completing any significant task, you MUST call `share_insight` to share what you learned.\n';
+    content += 'Examples of when to share:\n';
+    content += '- You discovered a bug or gotcha ("The auth middleware silently swallows 401 errors")\n';
+    content += '- You figured out how something works ("Payment webhooks retry 3x with exponential backoff")\n';
+    content += '- You made an architecture decision ("Used JSONL instead of JSON for append-friendly sync")\n';
+    content += '- You found a convention ("All API routes return { data, error } shape")\n';
+    content += '- You fixed a tricky issue ("ESM imports need .js extension even for .ts files")\n\n';
+    content += '**Call `share_insight` at least once per task.** If you learned nothing worth sharing, that is rare.\n\n';
+    content += '### Querying Team Knowledge\n\n';
+    content += 'Before starting work, call `ask` to check if teammates already solved a similar problem.\n';
+    content += 'This prevents duplicate work and surfaces existing conventions.\n\n';
+    content += '### Sessions\n\n';
+    content += 'Sessions are tracked automatically — no need to start/end manually.\n\n';
 
     // Recent team insights
     if (recentInsights.length > 0) {

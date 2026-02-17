@@ -17,6 +17,8 @@ import { createMemoryTools } from './tools/memory-tools.js';
  *   teamlens watch            # starts watcher + MCP server
  */
 export async function startMcpServer(repoPath: string): Promise<void> {
+  // Auto-detect: if .teamlens/ doesn't exist, this project hasn't been set up.
+  // Create it silently so the MCP server always starts (prevents Claude Code errors).
   const tl = await TeamLens.create(repoPath);
 
   // Auto-pull from git and import teammates' insights
@@ -70,6 +72,9 @@ export async function startMcpServer(repoPath: string): Promise<void> {
       zodShape,
       async (args) => {
         try {
+          // Ingest hook events before each tool call
+          try { tl.sessions.ingestHookEvents(repoPath); } catch { /* non-fatal */ }
+
           const result = await tool.handler(args as Record<string, unknown>);
           return {
             content: [

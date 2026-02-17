@@ -7,13 +7,24 @@ interface McpServerConfig {
   args: string[];
 }
 
+interface HookEntry {
+  command: string;
+  type: string;
+}
+
+interface HookRule {
+  hooks: HookEntry[];
+  matcher: string;
+}
+
 interface McpConfig {
   mcpServers?: Record<string, McpServerConfig>;
+  hooks?: Record<string, HookRule[]>;
   [key: string]: unknown;
 }
 
-/** Resolve the absolute path to the CLI entry point. */
-function getServePath(): string {
+/** Resolve the absolute path to the CLI entry point (works for global + local installs). */
+function getCliPath(): string {
   return path.resolve(
     new URL('.', import.meta.url).pathname,
     '..',    // dist/
@@ -33,6 +44,7 @@ interface AgentTarget {
   detect: () => string | null;
   read: (configPath: string) => McpConfig;
   write: (configPath: string, config: McpConfig) => void;
+  supportsHooks: boolean;
 }
 
 function getAgents(repoPath: string): AgentTarget[] {
@@ -41,6 +53,7 @@ function getAgents(repoPath: string): AgentTarget[] {
     {
       name: 'Claude Code',
       scope: 'global' as ConfigScope,
+      supportsHooks: true,
       detect: () => {
         const configPath = path.join(os.homedir(), '.claude', 'settings.json');
         return fs.existsSync(path.join(os.homedir(), '.claude')) ? configPath : null;
@@ -58,6 +71,7 @@ function getAgents(repoPath: string): AgentTarget[] {
     {
       name: 'Cursor',
       scope: 'project' as ConfigScope,
+      supportsHooks: false,
       detect: () => {
         const cursorDir = path.join(repoPath, '.cursor');
         if (fs.existsSync(cursorDir)) {
@@ -79,6 +93,7 @@ function getAgents(repoPath: string): AgentTarget[] {
     {
       name: 'Windsurf',
       scope: 'global' as ConfigScope,
+      supportsHooks: false,
       detect: () => {
         const configPath = path.join(os.homedir(), '.codeium', 'windsurf', 'mcp_config.json');
         return fs.existsSync(path.join(os.homedir(), '.codeium', 'windsurf')) ? configPath : null;
@@ -95,28 +110,35 @@ function getAgents(repoPath: string): AgentTarget[] {
 }
 
 export async function setupCommand(repoPath: string): Promise<void> {
-  const servePath = getServePath();
+  const cliPath = getCliPath();
 
-  console.log('TeamLens Setup\n');
+  console.log('\n  TeamLens Setup\n');
 
   // Verify the serve entry point exists
-  if (!fs.existsSync(servePath)) {
+  if (!fs.existsSync(cliPath)) {
     console.error(`  Error: CLI not built. Run \`pnpm build\` first.`);
-    console.error(`  Expected: ${servePath}`);
+    console.error(`  Expected: ${cliPath}`);
     process.exit(1);
   }
 
-  // Global agents: no --path (serve defaults to cwd, which is the project the agent opens)
-  // Project agents: use --path with the specific repo
-  const globalMcpEntry: McpServerConfig = {
+  // ── MCP Server Config ──
+  // No --path: the serve command auto-detects from CWD.
+  // Claude Code sets CWD to the project directory, so it just works.
+  const mcpEntry: McpServerConfig = {
     command: 'node',
-    args: [servePath, 'serve'],
+    args: [cliPath, 'serve'],
   };
 
+  // For project-scoped agents (Cursor), include --path for the specific repo
   const projectMcpEntry: McpServerConfig = {
     command: 'node',
-    args: [servePath, 'serve', '--path', repoPath],
+    args: [cliPath, 'serve', '--path', repoPath],
   };
+
+  // ── Hook Config ──
+  // PostToolUse hook logs activity automatically.
+  // No --path: hook-log auto-detects from CWD, skips if no .teamlens/ exists.
+  const hookCommand = `node ${cliPath} hook-log`;
 
   const agents = getAgents(repoPath);
   let configured = 0;
@@ -125,17 +147,37 @@ export async function setupCommand(repoPath: string): Promise<void> {
     const configPath = agent.detect();
     if (!configPath) continue;
 
-    const mcpEntry = agent.scope === 'global' ? globalMcpEntry : projectMcpEntry;
+    const entry = agent.scope === 'global' ? mcpEntry : projectMcpEntry;
 
     try {
       const config = agent.read(configPath);
-      config.mcpServers = config.mcpServers ?? {};
 
+      // Register MCP server
+      config.mcpServers = config.mcpServers ?? {};
       const action = config.mcpServers['teamlens'] ? 'updated' : 'configured';
-      config.mcpServers['teamlens'] = mcpEntry;
+      config.mcpServers['teamlens'] = entry;
+
+      // Register hooks (Claude Code only)
+      if (agent.supportsHooks) {
+        config.hooks = config.hooks ?? {};
+        const existingPostHooks = config.hooks['PostToolUse'] ?? [];
+
+        // Remove any existing teamlens hook entries (idempotent)
+        const filteredHooks = existingPostHooks.filter(rule =>
+          !rule.hooks?.some(h => h.command.includes('hook-log'))
+        );
+
+        // Add our hook
+        filteredHooks.push({
+          hooks: [{ command: hookCommand, type: 'command' }],
+          matcher: '',
+        });
+        config.hooks['PostToolUse'] = filteredHooks;
+      }
+
       agent.write(configPath, config);
 
-      const scopeLabel = agent.scope === 'global' ? '(global — works in any repo)' : '(project-level)';
+      const scopeLabel = agent.scope === 'global' ? '(global — works in any project)' : '(project-level)';
       console.log(`  ${agent.name}: ${action} ${scopeLabel}`);
       console.log(`    ${configPath}`);
 
@@ -151,29 +193,30 @@ export async function setupCommand(repoPath: string): Promise<void> {
     console.log('  Supported: Claude Code, Cursor, Windsurf');
     console.log('  Install one, then run `teamlens setup` again.\n');
     console.log('  Or manually add to your agent\'s MCP config:\n');
-    console.log(JSON.stringify({ mcpServers: { teamlens: globalMcpEntry } }, null, 2));
+    console.log(JSON.stringify({ mcpServers: { teamlens: mcpEntry } }, null, 2));
     return;
   }
 
-  console.log(`\n  ${configured} agent(s) configured.`);
-  console.log('  Restart your agent to pick up the new tools.');
+  console.log(`\n  ${configured} agent(s) configured.\n`);
 
-  // Auto-init if .teamlens doesn't exist in this repo
+  // ── Init project ──
   const storageDir = path.join(repoPath, '.teamlens');
   const { TeamLens } = await import('@teamlens/core');
   const tl = await TeamLens.create(repoPath);
 
   try {
     if (!fs.existsSync(storageDir)) {
-      console.log('\n  No memory store found — initializing...\n');
+      console.log('  Initializing memory store...\n');
       const { memoriesCreated, filesTracked } = await tl.init();
-      console.log(`  Files tracked:    ${filesTracked}`);
-      console.log(`  Memories created: ${memoriesCreated}`);
-      console.log(`  Storage:          ${storageDir}/`);
+      console.log(`    Files tracked:    ${filesTracked}`);
+      console.log(`    Memories created: ${memoriesCreated}`);
+      console.log(`    Storage:          ${storageDir}/`);
+    } else {
+      console.log('  Memory store already exists.');
     }
 
-    // Always distribute to ensure CLAUDE.md exists with session protocol
-    console.log('\n  Generating agent config files...');
+    // Generate CLAUDE.md + other agent config files
+    console.log('\n  Generating agent instruction files...');
     const { generated, warnings } = tl.distribute();
     for (const file of generated) {
       console.log(`    ${file}`);
@@ -185,5 +228,11 @@ export async function setupCommand(repoPath: string): Promise<void> {
     tl.close();
   }
 
-  console.log('\n  You\'re all set.\n');
+  console.log('\n  Done. Restart your AI agent to activate TeamLens.\n');
+  console.log('  What happens next:');
+  console.log('    1. Open your AI agent (Claude Code, Cursor, etc.) in this project');
+  console.log('    2. TeamLens auto-starts and tracks your session');
+  console.log('    3. Activity is logged automatically via hooks');
+  console.log('    4. AI shares insights when it learns something (per CLAUDE.md instructions)');
+  console.log('    5. Run `teamlens dashboard` to see everything\n');
 }

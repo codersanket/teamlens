@@ -376,7 +376,7 @@ export class TeamLens {
   /** Ensure .teamlens/memory.db is gitignored but team.jsonl is NOT. */
   private ensureGitignore(): void {
     const gitignorePath = path.join(this.repoPath, this.config.storageDir, '.gitignore');
-    const content = '# Local database — gitignored (team sync uses team.jsonl)\nmemory.db\nmemory.db-wal\nmemory.db-shm\n';
+    const content = '# Local database — gitignored (team sync uses team.jsonl)\nmemory.db\nmemory.db-wal\nmemory.db-shm\nhooks.jsonl\n';
 
     if (!fs.existsSync(gitignorePath)) {
       fs.mkdirSync(path.dirname(gitignorePath), { recursive: true });

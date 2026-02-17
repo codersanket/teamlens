@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { MemoryDatabase } from '../store/database.js';
 import type { TeamLensConfig, Session, ActivityEvent, ActivityType, Memory } from '../types.js';
 import { InsightDetector } from './insight-detector.js';
@@ -188,6 +190,64 @@ export class SessionManager {
   /** Get team context for injection at session start. */
   getTeamContext(limit = 10): Memory[] {
     return this.db.getRecentInsights(limit);
+  }
+
+  /**
+   * Ingest hook events from .teamlens/hooks.jsonl into the database.
+   * Called by the MCP server before each tool handler to pick up
+   * activity logged by Claude Code PostToolUse hooks.
+   */
+  ingestHookEvents(repoPath: string): number {
+    const hooksFile = path.join(repoPath, this.config.storageDir, 'hooks.jsonl');
+    if (!fs.existsSync(hooksFile)) return 0;
+
+    const content = fs.readFileSync(hooksFile, 'utf-8').trim();
+    if (!content) return 0;
+
+    const lines = content.split('\n').filter(Boolean);
+    if (lines.length === 0) return 0;
+
+    const session = this.getOrCreateSession();
+    let ingested = 0;
+
+    for (const line of lines) {
+      try {
+        const hookEvent = JSON.parse(line);
+        const event: ActivityEvent = {
+          id: randomUUID(),
+          sessionId: session.id,
+          type: (hookEvent.type as ActivityType) ?? 'other',
+          description: hookEvent.description ?? hookEvent.tool ?? '',
+          files: hookEvent.files ?? [],
+          timestamp: hookEvent.timestamp ?? new Date().toISOString(),
+        };
+        this.db.insertActivityEvent(event);
+
+        // Track files
+        for (const file of event.files) {
+          this.trackFile(session.id, file);
+        }
+
+        ingested++;
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    // Update session activity count
+    if (ingested > 0) {
+      const updated = this.db.getSession(session.id);
+      if (updated) {
+        this.db.updateSession(session.id, {
+          activityCount: updated.activityCount + ingested,
+        });
+      }
+    }
+
+    // Clear the hooks file after ingestion
+    fs.writeFileSync(hooksFile, '');
+
+    return ingested;
   }
 
   // ── Private ──

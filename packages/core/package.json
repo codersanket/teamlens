@@ -1,8 +1,17 @@
 {
   "name": "@teamlens/core",
-  "version": "0.1.0",
-  "description": "Team AI governance engine — rules, memory, distribution",
+  "version": "0.1.1",
+  "description": "TeamLens core — database, sessions, analytics, team sync",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanketbabar/teamlens",
+    "directory": "packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

@@ -1,10 +1,23 @@
 {
   "name": "@teamlens/web",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TeamLens local web dashboard — session analytics, insights feed, contributor leaderboard",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanketbabar/teamlens",
+    "directory": "packages/web"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "public/"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",

@@ -1,8 +1,24 @@
 {
   "name": "teamlens",
-  "version": "0.1.0",
-  "description": "TeamLens — AI Team Intelligence platform",
+  "version": "0.1.1",
+  "description": "AI Team Intelligence — see what your team's AI is doing, share knowledge automatically",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanketbabar/teamlens"
+  },
+  "keywords": [
+    "ai",
+    "mcp",
+    "claude",
+    "cursor",
+    "copilot",
+    "team",
+    "intelligence",
+    "developer-tools",
+    "ai-coding"
+  ],
   "bin": {
     "teamlens": "dist/index.js"
   },
