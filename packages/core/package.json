@@ -1,6 +1,6 @@
 {
   "name": "@teamlens/core",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "TeamLens core — database, sessions, analytics, team sync",
   "type": "module",
   "license": "MIT",

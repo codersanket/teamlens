@@ -1,6 +1,6 @@
 {
   "name": "@teamlens/mcp-server",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "TeamLens MCP server — exposes session-aware tools to AI agents",
   "type": "module",
   "license": "MIT",

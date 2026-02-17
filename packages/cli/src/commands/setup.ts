@@ -212,6 +212,28 @@ export async function setupCommand(repoPath: string): Promise<void> {
     return;
   }
 
+  // ── Also register in Claude Code's .claude.json per-project config ──
+  // Claude Code reads MCP servers from ~/.claude.json per-project entries,
+  // not just ~/.claude/settings.json. Use `claude mcp add` if available.
+  try {
+    const { execSync: exec } = await import('node:child_process');
+    // Remove existing entry first (idempotent)
+    try {
+      exec('claude mcp remove teamlens', {
+        cwd: repoPath, timeout: 5000, stdio: 'pipe',
+      });
+    } catch { /* didn't exist — that's fine */ }
+
+    exec(
+      `claude mcp add teamlens -- node ${cliPath} serve`,
+      { cwd: repoPath, timeout: 5000, stdio: 'pipe' }
+    );
+    console.log(`  Claude Code: project-level MCP registered via 'claude mcp add'`);
+    configured++;
+  } catch {
+    // claude CLI not available — that's OK, global config still works
+  }
+
   console.log(`\n  ${configured} agent(s) configured.\n`);
 
   // ── Init project ──

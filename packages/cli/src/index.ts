@@ -2,6 +2,8 @@
 
 import { Command } from 'commander';
 import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { initCommand } from './commands/init.js';
 import { watchCommand } from './commands/watch.js';
 import { statusCommand } from './commands/status.js';
@@ -16,6 +18,36 @@ import { distributeCommand } from './commands/distribute.js';
 import { dashboardCommand } from './commands/dashboard.js';
 import { feedCommand } from './commands/feed.js';
 import { hookLogCommand } from './commands/hook-log.js';
+
+/**
+ * Auto-detect the project root by looking for .teamlens/ directory.
+ * Walks up from the given path (or CWD), then falls back to git root.
+ */
+function findProjectRoot(startPath: string): string {
+  let dir = resolve(startPath);
+
+  // Walk up looking for .teamlens/
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(resolve(dir, '.teamlens'))) return dir;
+    const parent = resolve(dir, '..');
+    if (parent === dir) break; // reached filesystem root
+    dir = parent;
+  }
+
+  // Fallback: try git root
+  try {
+    const gitRoot = execSync('git rev-parse --show-toplevel', {
+      cwd: startPath,
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (gitRoot && existsSync(resolve(gitRoot, '.teamlens'))) return gitRoot;
+  } catch { /* not a git repo */ }
+
+  // Last resort: use the given path
+  return resolve(startPath);
+}
 
 const program = new Command();
 
@@ -51,10 +83,11 @@ program
 program
   .command('serve')
   .description('Start MCP server only (no git watching)')
-  .option('-p, --path <path>', 'Repository path', '.')
+  .option('-p, --path <path>', 'Repository path')
   .action(async (opts) => {
+    const repoPath = opts.path ? resolve(opts.path) : findProjectRoot('.');
     const { startMcpServer } = await import('@teamlens/mcp-server');
-    await startMcpServer(resolve(opts.path));
+    await startMcpServer(repoPath);
   });
 
 program
@@ -132,9 +165,10 @@ program
 program
   .command('hook-log')
   .description('Internal: log tool use from Claude Code hooks')
-  .option('-p, --path <path>', 'Repository path', '.')
+  .option('-p, --path <path>', 'Repository path')
   .action(async (opts) => {
-    await hookLogCommand(resolve(opts.path));
+    const repoPath = opts.path ? resolve(opts.path) : findProjectRoot('.');
+    await hookLogCommand(repoPath);
   });
 
 // ── Rule Management ──
