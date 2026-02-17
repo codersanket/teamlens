@@ -172,10 +172,165 @@ export class SessionManager {
     }
   }
 
-  /** Close stale sessions that have been active too long. */
+  /** Close stale sessions that have been active too long, auto-generating summaries. */
   cleanupStaleSessions(timeoutMinutes?: number): number {
     const timeout = timeoutMinutes ?? this.config.sessionTimeoutMinutes;
-    return this.db.cleanupStaleSessions(timeout);
+    const cutoff = new Date(Date.now() - timeout * 60 * 1000).toISOString();
+
+    // Find stale sessions BEFORE the DB marks them abandoned,
+    // so we can generate summaries and auto-share them.
+    const developer = this.config.developer !== 'unknown' ? this.config.developer : this.config.author;
+    const staleSessions = this.db.getAllSessions(100, 0)
+      .filter(s => s.status === 'active' && s.startedAt < cutoff);
+
+    for (const session of staleSessions) {
+      this.autoEndSessionWithSummary(session.id);
+    }
+
+    return staleSessions.length;
+  }
+
+  /**
+   * End a session and auto-generate a summary insight from its activities.
+   * This ensures every session produces at least one team-visible record,
+   * even if the AI never called share_insight.
+   */
+  async autoEndSessionWithSummary(sessionId: string): Promise<void> {
+    const session = this.db.getSession(sessionId);
+    if (!session || session.status !== 'active') return;
+
+    const activities = this.db.getActivitiesBySession(sessionId);
+
+    // Only auto-summarize sessions with meaningful work (3+ activities)
+    if (activities.length >= 3 && session.insightCount === 0) {
+      const summary = this.generateSessionSummary(session, activities);
+
+      // Share as a team insight with category 'discovery'
+      const memory = this.db.insertMemory(
+        {
+          content: summary,
+          category: 'discovery',
+          relatedFiles: session.filesTouched.slice(0, 10),
+          tags: ['auto-summary', 'session'],
+          confidence: 0.6,
+          commitSha: null,
+        },
+        session.developer,
+        'team',
+        sessionId
+      );
+
+      // Export to team.jsonl so teammates see it
+      this.teamSync.appendMemory(memory);
+      this.teamSync.autoCommitAndPush();
+
+      this.db.closeSession(sessionId, summary);
+    } else {
+      const summary = activities.length > 0
+        ? this.generateSessionSummary(session, activities)
+        : 'No significant activity';
+      this.db.closeSession(sessionId, summary);
+    }
+  }
+
+  /**
+   * Generate a human-readable session summary from activity data.
+   * Produces something like:
+   *   "Session (32 min): Worked on auth module — edited session-manager.ts,
+   *    insight-detector.ts, ran 5 commands. Focus: implementation + debugging."
+   */
+  generateSessionSummary(session: Session, activities: ActivityEvent[]): string {
+    const durationMin = session.durationSeconds
+      ? Math.round(session.durationSeconds / 60)
+      : Math.round((Date.now() - new Date(session.startedAt).getTime()) / 60000);
+
+    // Collect unique files
+    const files = [...new Set(session.filesTouched)];
+
+    // Categorize activity types
+    const typeCounts: Record<string, number> = {};
+    for (const act of activities) {
+      typeCounts[act.type] = (typeCounts[act.type] || 0) + 1;
+    }
+
+    // Find top activity types
+    const topTypes = Object.entries(typeCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([type]) => type.replace('_', ' '));
+
+    // Find the common directory (module) being worked on
+    const module = this.detectModule(files);
+
+    // Build summary
+    const parts: string[] = [];
+    parts.push(`Session (${durationMin} min)`);
+
+    if (session.task) {
+      parts[0] += ` — ${session.task}`;
+    } else if (module) {
+      parts[0] += ` — worked on ${module}`;
+    }
+
+    if (files.length > 0) {
+      const displayFiles = files.slice(0, 5).map(f => path.basename(f));
+      parts.push(`Files: ${displayFiles.join(', ')}${files.length > 5 ? ` (+${files.length - 5} more)` : ''}`);
+    }
+
+    if (topTypes.length > 0) {
+      parts.push(`Focus: ${topTypes.join(', ')}`);
+    }
+
+    if (session.insightCount > 0) {
+      parts.push(`Shared ${session.insightCount} insight(s)`);
+    }
+
+    return parts.join('. ') + '.';
+  }
+
+  /**
+   * Get an insight nudge message if the session has enough activity
+   * but no insights shared yet. Returns null if no nudge needed.
+   */
+  getInsightNudge(): string | null {
+    const session = this.getActiveSession();
+    if (!session) return null;
+
+    // Only nudge after significant activity with zero insights
+    if (session.insightCount > 0) return null;
+    if (session.activityCount < 5) return null;
+
+    // Nudge once at 5 activities, then at 15, then at 30
+    const nudgePoints = [5, 15, 30];
+    if (!nudgePoints.includes(session.activityCount)) return null;
+
+    return `You've done ${session.activityCount} activities in this session but haven't shared any insights. ` +
+      `If you learned anything useful (gotchas, patterns, conventions), call share_insight so your teammates benefit.`;
+  }
+
+  /** Detect the common module/directory from a list of file paths. */
+  private detectModule(files: string[]): string | null {
+    if (files.length === 0) return null;
+
+    const dirs = files
+      .map(f => path.dirname(f))
+      .filter(d => d !== '.' && d !== '/');
+
+    if (dirs.length === 0) return null;
+
+    // Find most common directory prefix
+    const dirCounts: Record<string, number> = {};
+    for (const dir of dirs) {
+      // Use the first 2 segments as the module identifier
+      const segments = dir.split(path.sep).slice(0, 3);
+      const key = segments.join('/');
+      dirCounts[key] = (dirCounts[key] || 0) + 1;
+    }
+
+    const topDir = Object.entries(dirCounts)
+      .sort((a, b) => b[1] - a[1])[0];
+
+    return topDir ? topDir[0] : null;
   }
 
   /** Get the current active session. */

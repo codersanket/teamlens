@@ -8,6 +8,13 @@ export interface ToolDefinition {
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
+/** Sync team knowledge from git (non-fatal, non-blocking feel). */
+function syncTeamKnowledge(tl: TeamLens): void {
+  try {
+    tl.team.autoGitPullAndImport();
+  } catch { /* non-fatal — never block a tool call */ }
+}
+
 export function createMemoryTools(tl: TeamLens): ToolDefinition[] {
   return [
     // ── Session Tools ──
@@ -209,6 +216,9 @@ export function createMemoryTools(tl: TeamLens): ToolDefinition[] {
         required: ['query'],
       },
       handler: async (args) => {
+        // Pull latest team knowledge before querying
+        syncTeamKnowledge(tl);
+
         const results = await tl.query(
           args.query as string,
           args.scope as string | undefined,
@@ -281,6 +291,9 @@ export function createMemoryTools(tl: TeamLens): ToolDefinition[] {
         properties: {},
       },
       handler: async () => {
+        // Pull latest team knowledge before reporting status
+        syncTeamKnowledge(tl);
+
         const session = tl.sessions.getActiveSession();
         const stats = tl.stats();
         const overview = tl.analytics.getOverview();

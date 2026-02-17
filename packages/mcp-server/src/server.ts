@@ -76,14 +76,17 @@ export async function startMcpServer(repoPath: string): Promise<void> {
           try { tl.sessions.ingestHookEvents(repoPath); } catch { /* non-fatal */ }
 
           const result = await tool.handler(args as Record<string, unknown>);
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(result, null, 2),
-              },
-            ],
-          };
+
+          // Inject insight nudge if the AI has done significant work without sharing
+          const nudge = tl.sessions.getInsightNudge();
+          const contents: { type: 'text'; text: string }[] = [
+            { type: 'text' as const, text: JSON.stringify(result, null, 2) },
+          ];
+          if (nudge && tool.name !== 'share_insight') {
+            contents.push({ type: 'text' as const, text: `\n⚡ ${nudge}` });
+          }
+
+          return { content: contents };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           return {
@@ -150,21 +153,17 @@ export async function startMcpServer(repoPath: string): Promise<void> {
     // Non-fatal — session will be created on first tool call
   }
 
-  // Auto-end session on disconnect
-  process.on('SIGINT', () => {
+  // Auto-end session with summary on disconnect
+  const gracefulShutdown = async () => {
     const session = tl.sessions.getActiveSession();
     if (session) {
-      tl.sessions.endSession(session.id, 'Agent disconnected');
+      // Ingest any remaining hook events before generating summary
+      try { tl.sessions.ingestHookEvents(repoPath); } catch { /* non-fatal */ }
+      await tl.sessions.autoEndSessionWithSummary(session.id);
     }
     tl.close();
     process.exit(0);
-  });
-  process.on('SIGTERM', () => {
-    const session = tl.sessions.getActiveSession();
-    if (session) {
-      tl.sessions.endSession(session.id, 'Agent disconnected');
-    }
-    tl.close();
-    process.exit(0);
-  });
+  };
+  process.on('SIGINT', gracefulShutdown);
+  process.on('SIGTERM', gracefulShutdown);
 }

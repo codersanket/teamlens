@@ -23,13 +23,28 @@ interface McpConfig {
   [key: string]: unknown;
 }
 
-/** Resolve the absolute path to the CLI entry point (works for global + local installs). */
+/**
+ * Resolve the absolute path to the CLI entry point.
+ * Works for global npm install, npx, and local dev.
+ *
+ * Strategy:
+ *   1. process.argv[1] — the actual script Node.js is running (most reliable)
+ *   2. Fallback: resolve from import.meta.url (for edge cases)
+ */
 function getCliPath(): string {
+  // process.argv[1] is the entry script Node.js was invoked with.
+  // For global installs: /usr/local/lib/node_modules/teamlens/dist/index.js
+  // For npx: ~/.npm/_npx/.../node_modules/teamlens/dist/index.js
+  // For local dev: /Users/.../packages/cli/dist/index.js
+  const argv1 = process.argv[1];
+  if (argv1 && fs.existsSync(argv1)) {
+    return path.resolve(argv1);
+  }
+
+  // Fallback: resolve from this file's location
   return path.resolve(
     new URL('.', import.meta.url).pathname,
-    '..',    // dist/
-    '..',    // cli/
-    'dist',
+    '..',    // out of commands/
     'index.js'
   );
 }
