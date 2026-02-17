@@ -1,17 +1,17 @@
 import { watch } from 'chokidar';
-import { CodeMemory } from '@codememory/core';
-import { startMcpServer } from '@codememory/mcp-server';
+import { TeamLens } from '@teamlens/core';
+import { startMcpServer } from '@teamlens/mcp-server';
 import path from 'node:path';
 
 export async function watchCommand(repoPath: string): Promise<void> {
-  console.log('Starting CodeMemory daemon...\n');
+  console.log('Starting TeamLens daemon...\n');
 
-  const cm = new CodeMemory(repoPath);
+  const tl = await TeamLens.create(repoPath);
 
   // Process any commits that happened while daemon was off
-  const { newMemories, stalenessUpdates } = await cm.processNewCommits();
-  if (newMemories > 0 || stalenessUpdates > 0) {
-    console.log(`  Catch-up: ${newMemories} new memories, ${stalenessUpdates} staleness updates`);
+  const { newMemories, stalenessUpdates, teamImported } = await tl.processNewCommits();
+  if (newMemories > 0 || stalenessUpdates > 0 || teamImported > 0) {
+    console.log(`  Catch-up: ${newMemories} new memories, ${stalenessUpdates} staleness updates, ${teamImported} team imported`);
   }
 
   // Watch for file changes in the repo
@@ -26,10 +26,10 @@ export async function watchCommand(repoPath: string): Promise<void> {
 
   watcher.on('change', async () => {
     try {
-      const result = await cm.processNewCommits();
-      if (result.newMemories > 0 || result.stalenessUpdates > 0) {
+      const result = await tl.processNewCommits();
+      if (result.newMemories > 0 || result.stalenessUpdates > 0 || result.teamImported > 0) {
         console.log(
-          `[${new Date().toLocaleTimeString()}] +${result.newMemories} memories, ${result.stalenessUpdates} staleness updates`
+          `[${new Date().toLocaleTimeString()}] +${result.newMemories} memories, ${result.stalenessUpdates} staleness updates, ${result.teamImported} team imported`
         );
       }
     } catch (err) {
@@ -37,7 +37,7 @@ export async function watchCommand(repoPath: string): Promise<void> {
     }
   });
 
-  const stats = cm.stats();
+  const stats = tl.stats();
   console.log(`  Memories: ${stats.total} (${stats.fresh} fresh, ${stats.stale} stale)`);
   console.log('  Watching for git changes...');
   console.log('  MCP server starting on stdio...\n');
@@ -47,5 +47,5 @@ export async function watchCommand(repoPath: string): Promise<void> {
 
   // Cleanup
   await watcher.close();
-  cm.close();
+  tl.close();
 }

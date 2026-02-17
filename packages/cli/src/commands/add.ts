@@ -1,5 +1,5 @@
-import { CodeMemory } from '@codememory/core';
-import type { MemoryCategory } from '@codememory/core';
+import { TeamLens } from '@teamlens/core';
+import type { MemoryCategory, MemoryTier } from '@teamlens/core';
 
 const VALID_CATEGORIES: MemoryCategory[] = [
   'architecture',
@@ -7,13 +7,17 @@ const VALID_CATEGORIES: MemoryCategory[] = [
   'decision',
   'correction',
   'active_context',
+  'discovery',
+  'gotcha',
+  'dependency',
 ];
 
 export async function addCommand(
   repoPath: string,
   content: string,
   category: string,
-  files: string[]
+  files: string[],
+  tier: string = 'personal'
 ): Promise<void> {
   if (!VALID_CATEGORIES.includes(category as MemoryCategory)) {
     console.error(`Invalid category: ${category}`);
@@ -21,17 +25,19 @@ export async function addCommand(
     process.exit(1);
   }
 
-  const cm = new CodeMemory(repoPath);
+  const memoryTier = tier === 'team' ? 'team' : 'personal';
+  const tl = await TeamLens.create(repoPath);
 
   try {
-    const id = await cm.remember(content, category as MemoryCategory, files);
+    const id = await tl.remember(content, category as MemoryCategory, files, [], memoryTier as MemoryTier);
     console.log(`Memory stored: ${id}`);
     console.log(`  Category: ${category}`);
+    console.log(`  Tier:     ${memoryTier}`);
     console.log(`  Content:  ${content}`);
     if (files.length > 0) {
       console.log(`  Files:    ${files.join(', ')}`);
     }
   } finally {
-    cm.close();
+    tl.close();
   }
 }

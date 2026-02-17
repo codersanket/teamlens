@@ -1,19 +1,19 @@
-import { CodeMemory } from '@codememory/core';
+import { TeamLens } from '@teamlens/core';
 
 export async function forgetCommand(repoPath: string, memoryId: string): Promise<void> {
-  const cm = new CodeMemory(repoPath);
+  const tl = await TeamLens.create(repoPath);
 
   try {
-    const existing = cm.db.getMemory(memoryId);
+    const existing = tl.db.getMemory(memoryId);
     if (!existing) {
       console.error(`Memory not found: ${memoryId}`);
       process.exit(1);
     }
 
-    cm.forget(memoryId);
+    tl.forget(memoryId);
     console.log(`Deleted memory: ${memoryId}`);
     console.log(`  Was: ${existing.content}`);
   } finally {
-    cm.close();
+    tl.close();
   }
 }

@@ -1,4 +1,4 @@
-import type { CodeMemoryConfig } from '../types.js';
+import type { TeamLensConfig } from '../types.js';
 
 /**
  * Embedding provider — generates vector embeddings for memory content.
@@ -12,7 +12,7 @@ export class EmbeddingProvider {
   private host: string;
   private available: boolean | null = null;
 
-  constructor(config: CodeMemoryConfig) {
+  constructor(config: TeamLensConfig) {
     this.model = config.embeddingModel;
     this.host = config.ollamaHost;
   }

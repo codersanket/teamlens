@@ -1,10 +1,16 @@
 {
-  "name": "@codememory/cli",
+  "name": "teamlens",
   "version": "0.1.0",
-  "description": "CLI — init, watch, search, status commands",
+  "description": "TeamLens — AI Team Intelligence platform",
   "type": "module",
   "bin": {
-    "codememory": "dist/index.js"
+    "teamlens": "dist/index.js"
+  },
+  "files": [
+    "dist/"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc",
@@ -12,8 +18,9 @@
     "clean": "rm -rf dist .tsbuildinfo"
   },
   "dependencies": {
-    "@codememory/core": "workspace:*",
-    "@codememory/mcp-server": "workspace:*",
+    "@teamlens/core": "workspace:*",
+    "@teamlens/mcp-server": "workspace:*",
+    "@teamlens/web": "workspace:*",
     "commander": "^13.0.0",
     "chalk": "^5.4.0",
     "chokidar": "^4.0.0",

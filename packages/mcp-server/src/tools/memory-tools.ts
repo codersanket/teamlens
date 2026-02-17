@@ -1,11 +1,6 @@
-import type { CodeMemory } from '@codememory/core';
+import type { TeamLens } from '@teamlens/core';
+import type { MemoryTier, RulePriority, DistributionTarget, ActivityType } from '@teamlens/core';
 
-/**
- * MCP tool definitions for CodeMemory.
- *
- * Each tool maps to a CodeMemory method. The MCP server registers these
- * tools so any compatible agent (Claude Code, Cursor, etc.) can call them.
- */
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -13,19 +8,194 @@ export interface ToolDefinition {
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
-export function createMemoryTools(cm: CodeMemory): ToolDefinition[] {
+export function createMemoryTools(tl: TeamLens): ToolDefinition[] {
   return [
-    // ── Retrieval Tools ──
+    // ── Session Tools ──
     {
-      name: 'get_context',
+      name: 'start_session',
       description:
-        'Retrieve relevant project memories for a given query. Returns ranked memories about architecture, conventions, decisions, and recent changes.',
+        'Optional — begin a new session with task context. Sessions are auto-created on first tool interaction, so this is only needed if you want to set a specific task description.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          task: {
+            type: 'string',
+            description: 'What you are working on (e.g., "fixing auth bug in login flow")',
+          },
+          tool_name: {
+            type: 'string',
+            description: 'Name of the AI tool (e.g., "claude-code", "cursor")',
+          },
+        },
+      },
+      handler: async (args) => {
+        const session = tl.sessions.startSession(
+          args.task as string | undefined,
+          args.tool_name as string | undefined
+        );
+
+        // Get team context for injection
+        const teamContext = tl.sessions.getTeamContext(5);
+
+        return {
+          sessionId: session.id,
+          developer: session.developer,
+          status: 'active',
+          teamContext: teamContext.map(m => ({
+            content: m.content,
+            category: m.category,
+            author: m.author,
+          })),
+        };
+      },
+    },
+
+    {
+      name: 'share_insight',
+      description:
+        'Share a learning or discovery with the team. Use this when you discover something important — gotchas, conventions, architecture patterns, dependency issues, or decisions. Type is auto-detected. Works without explicit start_session.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: 'The insight to share (e.g., "The auth module silently swallows 401 errors — always check response.ok")',
+          },
+          related_files: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'File paths this insight relates to',
+          },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional tags for organization',
+          },
+        },
+        required: ['content'],
+      },
+      handler: async (args) => {
+        const result = await tl.sessions.shareInsight(
+          args.content as string,
+          (args.related_files as string[]) ?? [],
+          (args.tags as string[]) ?? []
+        );
+
+        const response: Record<string, unknown> = {
+          memoryId: result.memoryId,
+          insightType: result.insightType,
+          sessionId: result.sessionId,
+          status: 'shared',
+        };
+
+        // If this is the first interaction (auto-session just created), inject team context
+        if (tl.sessions.wasSessionJustCreated()) {
+          const teamContext = tl.sessions.getTeamContext(5);
+          if (teamContext.length > 0) {
+            response.teamContext = teamContext.map(m => ({
+              content: m.content,
+              category: m.category,
+              author: m.author,
+            }));
+            response.message = `Session auto-started. Here are ${teamContext.length} recent insights from your team:`;
+          }
+        }
+
+        return response;
+      },
+    },
+
+    {
+      name: 'log_activity',
+      description:
+        'Record what you are doing during this session. Helps track activity patterns and feeds into analytics.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            enum: ['debug', 'refactor', 'file_edit', 'review', 'test', 'research', 'implementation', 'other'],
+            description: 'Type of activity',
+          },
+          description: {
+            type: 'string',
+            description: 'Brief description of the activity',
+          },
+          files: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Files involved in this activity',
+          },
+        },
+        required: ['type'],
+      },
+      handler: async (args) => {
+        const result = tl.sessions.logActivity(
+          args.type as ActivityType,
+          args.description as string | undefined,
+          (args.files as string[]) ?? []
+        );
+
+        const response: Record<string, unknown> = {
+          eventId: result.eventId,
+          sessionId: result.sessionId,
+          status: 'logged',
+        };
+
+        // If this is the first interaction (auto-session just created), inject team context
+        if (tl.sessions.wasSessionJustCreated()) {
+          const teamContext = tl.sessions.getTeamContext(5);
+          if (teamContext.length > 0) {
+            response.teamContext = teamContext.map(m => ({
+              content: m.content,
+              category: m.category,
+              author: m.author,
+            }));
+            response.message = `Session auto-started. Here are ${teamContext.length} recent insights from your team:`;
+          }
+        }
+
+        return response;
+      },
+    },
+
+    {
+      name: 'end_session',
+      description:
+        'End the current session with an optional summary. Sessions also auto-end when the agent disconnects.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Brief summary of what was accomplished',
+          },
+        },
+      },
+      handler: async (args) => {
+        const session = tl.sessions.endSession(undefined, args.summary as string | undefined);
+        if (!session) return { error: 'No active session to end' };
+        return {
+          sessionId: session.id,
+          duration: session.durationSeconds,
+          insightsShared: session.insightCount,
+          activitiesLogged: session.activityCount,
+          status: 'completed',
+        };
+      },
+    },
+
+    // ── Query Tools ──
+    {
+      name: 'ask',
+      description:
+        'Query team knowledge — search insights, conventions, decisions, and learnings from all teammates. Replaces get_context and get_team_context.',
       inputSchema: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
-            description: 'What you want to know about the project',
+            description: 'What you want to know (e.g., "how does payment processing work?")',
           },
           scope: {
             type: 'string',
@@ -33,28 +203,104 @@ export function createMemoryTools(cm: CodeMemory): ToolDefinition[] {
           },
           limit: {
             type: 'number',
-            description: 'Max number of memories to return (default: 10)',
+            description: 'Max number of results (default: 10)',
           },
         },
         required: ['query'],
       },
       handler: async (args) => {
-        const results = await cm.query(
+        const results = await tl.query(
           args.query as string,
           args.scope as string | undefined,
           args.limit as number | undefined
         );
-        return results.map((r) => ({
+
+        // Track reuse of insights — only count when a DIFFERENT developer queries
+        const currentDeveloper = tl.config.developer !== 'unknown' ? tl.config.developer : tl.config.author;
+        for (const r of results) {
+          if (r.memory.tier === 'team' && r.memory.author !== currentDeveloper) {
+            tl.db.incrementReuseCount(r.memory.id);
+          }
+        }
+
+        const response: Record<string, unknown>[] = results.map((r) => ({
           content: r.memory.content,
           category: r.memory.category,
-          confidence: r.memory.confidence,
-          staleness: r.memory.staleness,
+          tier: r.memory.tier,
+          author: r.memory.author,
           relatedFiles: r.memory.relatedFiles,
           score: Math.round(r.score * 100) / 100,
+          fromTeammate: r.memory.author !== currentDeveloper,
         }));
+
+        // If this is the first interaction (auto-session just created), inject team context
+        if (tl.sessions.wasSessionJustCreated()) {
+          const teamContext = tl.sessions.getTeamContext(5);
+          if (teamContext.length > 0) {
+            return {
+              results: response,
+              teamContext: teamContext.map(m => ({
+                content: m.content,
+                category: m.category,
+                author: m.author,
+              })),
+              message: `Session auto-started. Here are ${teamContext.length} recent insights from your team:`,
+            };
+          }
+        }
+
+        return response;
       },
     },
 
+    {
+      name: 'analytics',
+      description:
+        'Get ROI metrics, usage trends, and contributor leaderboard. Great for understanding team AI effectiveness.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          days: {
+            type: 'number',
+            description: 'Number of days to include in trends (default: 30)',
+          },
+        },
+      },
+      handler: async (args) => {
+        const days = (args.days as number) ?? 30;
+        return tl.analytics.getTeamAnalytics(days);
+      },
+    },
+
+    {
+      name: 'status',
+      description:
+        'Get current session state, memory stats, and a quick overview of team activity.',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+      },
+      handler: async () => {
+        const session = tl.sessions.getActiveSession();
+        const stats = tl.stats();
+        const overview = tl.analytics.getOverview();
+
+        return {
+          session: session ? {
+            id: session.id,
+            task: session.task,
+            duration: session.durationSeconds,
+            insights: session.insightCount,
+            activities: session.activityCount,
+          } : null,
+          memories: stats,
+          today: overview.today,
+          week: overview.week,
+        };
+      },
+    },
+
+    // ── Knowledge Tools (kept from CodeMemory) ──
     {
       name: 'get_conventions',
       description:
@@ -64,7 +310,7 @@ export function createMemoryTools(cm: CodeMemory): ToolDefinition[] {
         properties: {},
       },
       handler: async () => {
-        const conventions = await cm.getConventions();
+        const conventions = await tl.getConventions();
         return conventions.map((m) => ({
           content: m.content,
           tags: m.tags,
@@ -74,183 +320,134 @@ export function createMemoryTools(cm: CodeMemory): ToolDefinition[] {
     },
 
     {
-      name: 'get_decisions',
+      name: 'who_knows',
       description:
-        'Get architectural decisions and their reasoning for a module or the whole project. Answers "why was this approach chosen?"',
+        'Find which team members have context about a topic. Returns authors ranked by how many relevant memories they have.',
       inputSchema: {
         type: 'object',
         properties: {
-          scope: {
+          query: {
             type: 'string',
-            description: 'Optional directory/module path to filter decisions',
+            description: 'The topic to find expertise about (e.g., "authentication", "payment processing")',
+          },
+        },
+        required: ['query'],
+      },
+      handler: async (args) => {
+        return tl.whoKnows(args.query as string);
+      },
+    },
+
+    // ── Governance Tools ──
+    {
+      name: 'get_rules',
+      description:
+        'Get active team AI rules, optionally filtered by file path (scope matching) and category.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'Optional file path to get rules that apply to it (via scope glob matching)',
+          },
+          category: {
+            type: 'string',
+            enum: ['architecture', 'convention', 'decision', 'correction', 'active_context', 'discovery', 'gotcha', 'dependency'],
+            description: 'Optional category filter',
+          },
+          include_inactive: {
+            type: 'boolean',
+            description: 'Include disabled rules (default: false)',
           },
         },
       },
       handler: async (args) => {
-        const decisions = await cm.getDecisions(args.scope as string | undefined);
-        return decisions.map((m) => ({
-          content: m.content,
-          tags: m.tags,
-          relatedFiles: m.relatedFiles,
-          date: m.createdAt,
+        let rules = args.file_path
+          ? tl.db.getRulesForFile(args.file_path as string)
+          : tl.db.getRules((args.include_inactive as boolean | undefined) ?? false);
+
+        if (args.category) {
+          rules = rules.filter((r) => r.category === args.category);
+        }
+
+        return rules.map((r) => ({
+          id: r.id,
+          content: r.content,
+          category: r.category,
+          priority: r.priority ?? 'normal',
+          scope: r.scope,
+          active: r.active,
+          examples: r.examples,
         }));
       },
     },
 
     {
-      name: 'get_recent_changes',
+      name: 'add_rule',
       description:
-        'Get summary of recent project changes. Helps agent understand what happened since the last session.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          days: {
-            type: 'number',
-            description: 'How many days back to look (default: 7)',
-          },
-        },
-      },
-      handler: async (args) => {
-        const days = (args.days as number) || 7;
-        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-        const allMemories = cm.db.getAllMemories(false);
-        const recent = allMemories.filter((m) => m.createdAt >= since);
-        return {
-          count: recent.length,
-          memories: recent.map((m) => ({
-            content: m.content,
-            category: m.category,
-            date: m.createdAt,
-            relatedFiles: m.relatedFiles,
-          })),
-        };
-      },
-    },
-
-    // ── Writing Tools ──
-    {
-      name: 'remember',
-      description:
-        'Store a new memory about this project. Use this when you learn something important — conventions, architecture patterns, user preferences, gotchas, or decisions.',
+        'Define a new team AI rule with category, scope, priority, and optional code examples. Rules are distributed to all agent config files.',
       inputSchema: {
         type: 'object',
         properties: {
           content: {
             type: 'string',
-            description: 'The fact or knowledge to remember',
+            description: 'The rule text (e.g., "Use camelCase for variable names")',
           },
           category: {
             type: 'string',
-            enum: ['architecture', 'convention', 'decision', 'correction', 'active_context'],
-            description: 'Category of this memory',
+            enum: ['architecture', 'convention', 'decision', 'correction', 'active_context', 'discovery', 'gotcha', 'dependency'],
+            description: 'Rule category',
           },
-          related_files: {
+          scope: {
             type: 'array',
             items: { type: 'string' },
-            description: 'File paths this memory relates to',
+            description: 'Glob patterns this rule applies to (e.g., ["src/**/*.ts"]). Omit for global rules.',
           },
-          tags: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Optional tags for organization',
+          priority: {
+            type: 'string',
+            enum: ['critical', 'high', 'normal', 'low'],
+            description: 'Rule priority (default: normal)',
+          },
+          good_example: {
+            type: 'string',
+            description: 'Example of correct code',
+          },
+          bad_example: {
+            type: 'string',
+            description: 'Example of incorrect code',
           },
         },
         required: ['content', 'category'],
       },
       handler: async (args) => {
-        const id = await cm.remember(
-          args.content as string,
-          args.category as any,
-          (args.related_files as string[]) ?? [],
-          (args.tags as string[]) ?? []
-        );
-        return { id, status: 'stored' };
+        const id = await tl.addRule(args.content as string, args.category as any, {
+          scope: args.scope as string[] | undefined,
+          priority: (args.priority as RulePriority) ?? 'normal',
+          good: args.good_example as string | undefined,
+          bad: args.bad_example as string | undefined,
+        });
+        return { id, status: 'rule_added' };
       },
     },
 
     {
-      name: 'correct_memory',
+      name: 'distribute_rules',
       description:
-        'Update an existing memory with corrected information. The old version is replaced.',
+        'Generate agent config files (CLAUDE.md, .cursor/rules/, AGENTS.md, copilot-instructions.md) from the current rules and recent insights.',
       inputSchema: {
         type: 'object',
         properties: {
-          memory_id: {
-            type: 'string',
-            description: 'ID of the memory to correct',
-          },
-          correction: {
-            type: 'string',
-            description: 'The corrected content',
+          targets: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Specific targets to generate (default: auto-detect). Options: claude, cursor, copilot, agents_md',
           },
         },
-        required: ['memory_id', 'correction'],
       },
       handler: async (args) => {
-        const existing = cm.db.getMemory(args.memory_id as string);
-        if (!existing) return { error: 'Memory not found' };
-
-        // Delete old, create corrected version
-        cm.forget(args.memory_id as string);
-        const newId = await cm.remember(
-          args.correction as string,
-          existing.category,
-          existing.relatedFiles,
-          [...existing.tags, 'corrected']
-        );
-        return { old_id: args.memory_id, new_id: newId, status: 'corrected' };
-      },
-    },
-
-    // ── Feedback Tools ──
-    {
-      name: 'mark_stale',
-      description: 'Flag a memory as outdated. It will be downranked in future queries.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          memory_id: {
-            type: 'string',
-            description: 'ID of the memory to mark as stale',
-          },
-        },
-        required: ['memory_id'],
-      },
-      handler: async (args) => {
-        cm.markStale(args.memory_id as string);
-        return { status: 'marked_stale' };
-      },
-    },
-
-    {
-      name: 'confirm_memory',
-      description: 'Confirm a memory is still valid. Resets its staleness score.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          memory_id: {
-            type: 'string',
-            description: 'ID of the memory to confirm',
-          },
-        },
-        required: ['memory_id'],
-      },
-      handler: async (args) => {
-        cm.confirm(args.memory_id as string);
-        return { status: 'confirmed' };
-      },
-    },
-
-    // ── Status ──
-    {
-      name: 'memory_status',
-      description: 'Get stats about the memory store — total memories, stale count, fresh count.',
-      inputSchema: {
-        type: 'object',
-        properties: {},
-      },
-      handler: async () => {
-        return cm.stats();
+        const targets = args.targets as DistributionTarget[] | undefined;
+        const { generated, warnings } = tl.distribute(targets);
+        return { generated, warnings, status: 'distributed' };
       },
     },
   ];

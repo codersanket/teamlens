@@ -4,7 +4,7 @@ import type {
   RetrievalQuery,
   ScoredMemory,
   Memory,
-  CodeMemoryConfig,
+  TeamLensConfig,
 } from '../types.js';
 
 /**
@@ -21,7 +21,7 @@ export class MemoryRetriever {
   constructor(
     private db: MemoryDatabase,
     private embeddings: EmbeddingProvider,
-    private config: CodeMemoryConfig
+    private config: TeamLensConfig
   ) {}
 
   async query(request: RetrievalQuery): Promise<ScoredMemory[]> {
@@ -29,9 +29,19 @@ export class MemoryRetriever {
     const includeStale = request.includeStale ?? false;
 
     // Get candidate memories
-    let candidates = request.category
-      ? this.db.getMemoriesByCategory(request.category)
-      : this.db.getAllMemories(includeStale);
+    let candidates: Memory[];
+    if (request.tier) {
+      candidates = this.db.getMemoriesByTier(request.tier, includeStale);
+    } else if (request.category) {
+      candidates = this.db.getMemoriesByCategory(request.category);
+    } else {
+      candidates = this.db.getAllMemories(includeStale);
+    }
+
+    // Further filter by category if both tier and category specified
+    if (request.tier && request.category) {
+      candidates = candidates.filter((m) => m.category === request.category);
+    }
 
     // Filter by scope (directory prefix)
     if (request.scope) {

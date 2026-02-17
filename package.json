@@ -1,5 +1,5 @@
 {
-  "name": "codememory",
+  "name": "teamlens",
   "version": "0.1.0",
   "private": true,
   "description": "Git-aware memory layer for AI coding agents",

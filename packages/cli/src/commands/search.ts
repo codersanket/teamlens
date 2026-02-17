@@ -1,10 +1,10 @@
-import { CodeMemory } from '@codememory/core';
+import { TeamLens } from '@teamlens/core';
 
 export async function searchCommand(repoPath: string, query: string, scope?: string): Promise<void> {
-  const cm = new CodeMemory(repoPath);
+  const tl = await TeamLens.create(repoPath);
 
   try {
-    const results = await cm.query(query, scope, 10);
+    const results = await tl.query(query, scope, 10);
 
     if (results.length === 0) {
       console.log('No memories found.\n');
@@ -20,6 +20,6 @@ export async function searchCommand(repoPath: string, query: string, scope?: str
       console.log(`    ID: ${memory.id}\n`);
     }
   } finally {
-    cm.close();
+    tl.close();
   }
 }
